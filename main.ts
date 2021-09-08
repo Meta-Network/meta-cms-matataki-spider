@@ -1,26 +1,21 @@
-import { cron, jwtDecode, jwtValidate } from "./deps.ts";
-import { getMatatakiAuthTokens, getLatestTimestamp, getMetaSpacePosts, getPostInfo, addNewPosts } from "./services.ts";
-import type { NewPostInfo } from "./types.ts";
+import { connectNats, StringCodec } from "./deps.ts";
+import type { MetaSpacePosts, NewPostInfo, PostInfo } from "./types.ts";
 
-const everyTenMinutes = "*/10 * * * *";
+const natsClient = await connectNats({
 
-cron(everyTenMinutes, async () => {
-    const tokens = await getMatatakiAuthTokens();
-
-    const promises = new Array<Promise<Array<NewPostInfo>>>();
-
-    for (const token of tokens) {
-        const { payload } = jwtValidate(jwtDecode(token));
-        const userId = payload.id as number;
-
-        promises.push(getNewPostsOfUser(userId));
-    }
-
-    const promiseResults = await Promise.allSettled(promises);
-    const newPosts = promiseResults.filter(assertFulfilled).map(result => result.value).flat();
-
-    await addNewPosts(newPosts);
 });
+
+const stringCodec = StringCodec();
+
+const userIdSubscription = natsClient.subscribe("spider.matataki.userIds");
+
+for await (const message of userIdSubscription) {
+    const userId = parseInt(stringCodec.decode(message.data));
+    const newPosts = await getNewPostsOfUser(userId);
+
+    // TODO: Post
+}
+
 
 async function getNewPostsOfUser(userId: number) {
     const latestTimestamp = await getLatestTimestamp(userId);
@@ -45,7 +40,16 @@ async function getNewPostsOfUser(userId: number) {
 
     return newPosts;
 }
+function getLatestTimestamp(userId: number) {
+    return Promise.resolve(new Date());
+}
+async function getMetaSpacePosts(userId: number) {
+    const response = await fetch(`/migration/meta-space/posts?uid=${userId}`);
 
-function assertFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfilledResult<T> {
-    return result.status === "fulfilled";
+    return await response.json() as MetaSpacePosts;
+}
+async function getPostInfo(metadataHash: string) {
+    const response = await fetch(`https://ipfs.fleek.co/ipfs/${metadataHash}`);
+
+    return await response.json() as PostInfo;
 }
