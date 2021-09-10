@@ -1,24 +1,39 @@
-import { connectNats, StringCodec } from "./deps.ts";
+import { cron, jwtDecode, jwtValidate, MySqlClient } from "./deps.ts";
+import type { MySqlConnection } from "./deps.ts";
+import * as env from "./env.ts";
 import type { MetaSpacePosts, NewPostInfo, PostInfo } from "./types.ts";
 
-const natsClient = await connectNats({
+const everyTenMinutes = "0 */10 * * * *";
 
+cron(everyTenMinutes, async () => {
+    const client = await new MySqlClient().connect({
+        hostname: env.DB_HOST,
+        username: env.DB_USER,
+        password: env.DB_PASSWORD,
+        db: env.DB_DATABASE,
+    });
+
+    try {
+        await client.transaction(cronJob);
+    } finally {
+        await client.close();
+    }
 });
 
-const stringCodec = StringCodec();
+async function cronJob(connection: MySqlConnection) {
+    const accessTokens = await connection.query("SELECT accessToken FROM access_token_entity WHERE platform = 'matataki';") as Array<string>;
 
-const userIdSubscription = natsClient.subscribe("spider.matataki.userIds");
+    for (const token of accessTokens) {
+        const { payload } = jwtValidate(jwtDecode(token));
+        const userId = payload.id as number;
+        const latestTimestamp = await getLatestTimestamp(connection, userId);
+        const newPosts = await getNewPostsOfUser(latestTimestamp, userId);
 
-for await (const message of userIdSubscription) {
-    const userId = parseInt(stringCodec.decode(message.data));
-    const newPosts = await getNewPostsOfUser(userId);
-
-    // TODO: Post
+        await saveNewPosts(connection, newPosts);
+    }
 }
 
-
-async function getNewPostsOfUser(userId: number) {
-    const latestTimestamp = await getLatestTimestamp(userId);
+async function getNewPostsOfUser(latestTimestamp: Date, userId: number) {
     const { latestMetadata } = await getMetaSpacePosts(userId);
 
     const newPosts = new Array<NewPostInfo>();
@@ -40,7 +55,7 @@ async function getNewPostsOfUser(userId: number) {
 
     return newPosts;
 }
-function getLatestTimestamp(userId: number) {
+function getLatestTimestamp(connection: MySqlConnection, userId: number) {
     return Promise.resolve(new Date());
 }
 async function getMetaSpacePosts(userId: number) {
@@ -52,4 +67,8 @@ async function getPostInfo(metadataHash: string) {
     const response = await fetch(`https://ipfs.fleek.co/ipfs/${metadataHash}`);
 
     return await response.json() as PostInfo;
+}
+
+function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPostInfo>) {
+    return Promise.resolve();
 }
