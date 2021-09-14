@@ -26,6 +26,11 @@ async function cronJob(connection: MySqlConnection) {
     console.log(new Date(), "Job started");
 
     const latestTimestamp = await getLatestTimestamp(connection);
+    if (latestTimestamp === null) {
+        await recordLatestTime(connection);
+        return;
+    }
+
     const rows = await connection.query("SELECT userId, accessToken FROM access_token_entity WHERE platform = 'matataki' AND active = 1;") as Array<AccessTokenRecord>;
 
     const promises = new Array<Promise<Array<NewPostInfo>>>();
@@ -48,6 +53,7 @@ async function cronJob(connection: MySqlConnection) {
     }
 
     await saveNewPosts(connection, newPosts);
+    await recordLatestTime(connection);
 
     console.log(new Date(), "Job completed");
 }
@@ -81,11 +87,16 @@ async function getNewPostsOfUser(latestTimestamp: Date, ucenterId: number, matat
         throw error;
     }
 }
-function getLatestTimestamp(connection: MySqlConnection) {
-    return Promise.resolve(new Date());
+async function getLatestTimestamp(connection: MySqlConnection) {
+    const rows = await connection.query("SELECT latestTime FROM synchronizer_entity WHERE name = 'matataki';") as Array<{ latestTime: Date }>;
+
+    if (rows.length === 0)
+        return null;
+
+    return rows[0].latestTime;
 }
 async function getMetaSpacePosts(userId: number) {
-    const response = await fetch(`/migration/meta-space/posts?uid=${userId}`);
+    const response = await fetch(`${env.MATATAKI_API_PREFIX}/migration/meta-space/posts?uid=${userId}`);
 
     return await response.json() as MetaSpacePosts;
 }
@@ -98,4 +109,8 @@ async function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPost
     }
 
     console.log(new Date(), `Saved ${newPosts.length} posts`);
+}
+
+async function recordLatestTime(connection: MySqlConnection) {
+    await connection.query("UPDATE synchronizer_entity SET latestTime = NOW() WHERE name = 'matataki';");
 }
