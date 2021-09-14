@@ -112,5 +112,5 @@ async function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPost
 }
 
 async function recordLatestTime(connection: MySqlConnection) {
-    await connection.query("UPDATE synchronizer_entity SET latestTime = NOW() WHERE name = 'matataki';");
+    await connection.query("REPLACE INTO synchronizer_entity VALUES('matataki', NOW());");
 }
