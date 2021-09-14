@@ -1,7 +1,7 @@
 import { cron, jwtDecode, jwtValidate, MySqlClient } from "./deps.ts";
 import type { MySqlConnection } from "./deps.ts";
 import * as env from "./env.ts";
-import type { MetaSpacePosts, NewPostInfo, PostInfo } from "./types.ts";
+import type { MetaSpacePosts, NewPostInfo } from "./types.ts";
 
 const everyTenMinutes = "0 */10 * * * *";
 
@@ -20,42 +20,68 @@ cron(everyTenMinutes, async () => {
     }
 });
 
+type AccessTokenRecord = { userId: number, accessToken: string }
+
 async function cronJob(connection: MySqlConnection) {
-    const accessTokens = await connection.query("SELECT accessToken FROM access_token_entity WHERE platform = 'matataki';") as Array<string>;
+    console.log(new Date(), "Job started");
 
-    for (const token of accessTokens) {
-        const { payload } = jwtValidate(jwtDecode(token));
-        const userId = payload.id as number;
-        const latestTimestamp = await getLatestTimestamp(connection, userId);
-        const newPosts = await getNewPostsOfUser(latestTimestamp, userId);
+    const latestTimestamp = await getLatestTimestamp(connection);
+    const rows = await connection.query("SELECT userId, accessToken FROM access_token_entity WHERE platform = 'matataki' AND active = 1;") as Array<AccessTokenRecord>;
 
-        await saveNewPosts(connection, newPosts);
+    const promises = new Array<Promise<Array<NewPostInfo>>>();
+
+    for (const { userId, accessToken } of rows) {
+        const { payload } = jwtValidate(jwtDecode(accessToken));
+        const matatakiId = payload.id as number;
+        promises.push(getNewPostsOfUser(latestTimestamp, userId, matatakiId));
     }
-}
 
-async function getNewPostsOfUser(latestTimestamp: Date, userId: number) {
-    const { latestMetadata } = await getMetaSpacePosts(userId);
-
+    const promiseResults = await Promise.allSettled(promises);
     const newPosts = new Array<NewPostInfo>();
 
-    for (const [postId, { createdAt, metadataHash }] of Object.entries(latestMetadata)) {
-        const timestamp = new Date(createdAt);
-        if (timestamp <= latestTimestamp)
+    for (const promiseResult of promiseResults) {
+        if (promiseResult.status === "rejected") {
             continue;
+        }
 
-        const postInfo = await getPostInfo(metadataHash);
-
-        newPosts.push({
-            id: Number(postId),
-            hash: metadataHash,
-            timestamp: createdAt,
-            ...postInfo,
-        });
+        newPosts.push(...promiseResult.value);
     }
 
-    return newPosts;
+    await saveNewPosts(connection, newPosts);
+
+    console.log(new Date(), "Job completed");
 }
-function getLatestTimestamp(connection: MySqlConnection, userId: number) {
+
+async function getNewPostsOfUser(latestTimestamp: Date, ucenterId: number, matatakiId: number) {
+    try {
+        const { posts, latestMetadata } = await getMetaSpacePosts(matatakiId);
+
+        const newPosts = new Array<NewPostInfo>();
+
+        for (const [postId, { createdAt, metadataHash }] of Object.entries(latestMetadata)) {
+            const timestamp = new Date(createdAt);
+            if (timestamp <= latestTimestamp)
+                continue;
+
+            const postInfo = posts.find(post => post.id === Number(postId))!;
+
+            newPosts.push({
+                ucenterId,
+                id: Number(postId),
+                hash: metadataHash,
+                timestamp: createdAt,
+                title: postInfo.title,
+                cover: postInfo.cover,
+            });
+        }
+
+        return newPosts;
+    } catch (error) {
+        console.error(new Date(), `Unexpected error to ucenter id ${ucenterId}:`, error);
+        throw error;
+    }
+}
+function getLatestTimestamp(connection: MySqlConnection) {
     return Promise.resolve(new Date());
 }
 async function getMetaSpacePosts(userId: number) {
@@ -63,12 +89,13 @@ async function getMetaSpacePosts(userId: number) {
 
     return await response.json() as MetaSpacePosts;
 }
-async function getPostInfo(metadataHash: string) {
-    const response = await fetch(`https://ipfs.fleek.co/ipfs/${metadataHash}`);
 
-    return await response.json() as PostInfo;
-}
+async function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPostInfo>) {
+    for (const newPost of newPosts) {
+        await connection.query("INSERT INTO post_entity(`userId`, `title`, `cover`, `platform`, `source`, `state`) VALUES(?, ?, ?, 'matataki', ?, 'pending');", [
+            newPost.ucenterId, newPost.title, newPost.cover, newPost.hash,
+        ]);
+    }
 
-function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPostInfo>) {
-    return Promise.resolve();
+    console.log(new Date(), `Saved ${newPosts.length} posts`);
 }
