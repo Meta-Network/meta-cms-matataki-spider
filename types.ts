@@ -21,3 +21,8 @@ export interface NewPostInfo {
     title: string;
     cover: string;
 }
+
+export interface MicroserviceMessage<T> {
+    data: T;
+    pattern: string;
+}

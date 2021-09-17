@@ -1,11 +1,18 @@
-import { cron, jwtDecode, jwtValidate, MySqlClient } from "./deps.ts";
+import { connectNats, jwtDecode, jwtValidate, MySqlClient, JSONCodec } from "./deps.ts";
 import type { MySqlConnection } from "./deps.ts";
 import * as env from "./env.ts";
-import type { MetaSpacePosts, NewPostInfo } from "./types.ts";
+import type { MetaSpacePosts, MicroserviceMessage, NewPostInfo } from "./types.ts";
 
-const everyTenMinutes = "0 */10 * * * *";
+const natsClient = await connectNats({
+    servers: env.NATS_SERVER,
+});
 
-cron(everyTenMinutes, async () => {
+const natsCodec = JSONCodec<MicroserviceMessage<number>>();
+const userIdSubscription = natsClient.subscribe("cms.post.sync");
+
+for await (const message of userIdSubscription) {
+    const { data: userId } = natsCodec.decode(message.data);
+
     const client = await new MySqlClient().connect({
         hostname: env.DB_HOST,
         username: env.DB_USER,
@@ -14,36 +21,21 @@ cron(everyTenMinutes, async () => {
     });
 
     try {
-        await client.transaction(cronJob);
+        await client.transaction(connection => doJob(connection, userId));
     } finally {
         await client.close();
     }
-});
+}
 
 type AccessTokenRecord = { userId: number, accessToken: string }
 
-async function cronJob(connection: MySqlConnection) {
+async function doJob(connection: MySqlConnection, userId: number) {
     console.log(new Date(), "Job started");
 
-    const rows = await connection.query("SELECT userId, accessToken FROM access_token_entity WHERE platform = 'matataki' AND active = 1;") as Array<AccessTokenRecord>;
-    const promises = new Array<Promise<Array<NewPostInfo>>>();
-
-    for (const { userId, accessToken } of rows) {
-        const { payload } = jwtValidate(jwtDecode(accessToken));
-        const matatakiId = payload.id as number;
-        promises.push(getNewPostsOfUser(connection, userId, matatakiId));
-    }
-
-    const promiseResults = await Promise.allSettled(promises);
-    const newPosts = new Array<NewPostInfo>();
-
-    for (const promiseResult of promiseResults) {
-        if (promiseResult.status === "rejected") {
-            continue;
-        }
-
-        newPosts.push(...promiseResult.value);
-    }
+    const [{ accessToken }] = await connection.query("SELECT accessToken FROM access_token_entity WHERE userId = ? AND platform = 'matataki' AND active = 1;", [userId]) as Array<AccessTokenRecord>;
+    const { payload } = jwtValidate(jwtDecode(accessToken));
+    const matatakiId = payload.id as number;
+    const newPosts = await getNewPostsOfUser(connection, userId, matatakiId);
 
     await saveNewPosts(connection, newPosts);
 
