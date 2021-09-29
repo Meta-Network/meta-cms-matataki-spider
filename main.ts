@@ -9,6 +9,7 @@ const natsClient = await connectNats({
 const redis = await connectRedis({
     hostname: env.REDIS_HOST,
     port: env.REDIS_PORT,
+    password: env.REDIS_PASSWORD,
 });
 
 const natsCodec = JSONCodec<MicroserviceMessage<number>>();
