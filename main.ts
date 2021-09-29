@@ -11,19 +11,23 @@ const natsCodec = JSONCodec<MicroserviceMessage<number>>();
 const userIdSubscription = natsClient.subscribe("cms.post.sync");
 
 for await (const message of userIdSubscription) {
-    const { data: userId } = natsCodec.decode(message.data);
+    try {
+        const { data: userId } = natsCodec.decode(message.data);
 
-    const client = await new MySqlClient().connect({
+        const client = await new MySqlClient().connect({
         hostname: env.DB_HOST,
         username: env.DB_USER,
         password: env.DB_PASSWORD,
         db: env.DB_DATABASE,
-    });
+        });
 
-    try {
-        await client.transaction(connection => doJob(connection, userId));
-    } finally {
-        await client.close();
+        try {
+            await client.transaction((connection: MySqlConnection) => doJob(connection, userId));
+        } finally {
+            await client.close();
+        }
+    } catch (e) {
+        console.error(new Date(), "Unhandled exception:", e);
     }
 }
 
