@@ -8,7 +8,7 @@ const natsClient = await connectNats({
 });
 
 const natsCodec = JSONCodec<MicroserviceMessage<number>>();
-const userIdSubscription = natsClient.subscribe("cms.post.sync");
+const userIdSubscription = natsClient.subscribe("cms.post.sync.matataki");
 
 for await (const message of userIdSubscription) {
     try {
