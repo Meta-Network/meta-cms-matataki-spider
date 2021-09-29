@@ -15,6 +15,9 @@ export const DB_DATABASE = env.DB_DATABASE;
 
 export const NATS_SERVER = env.NATS_SERVER;
 
+export const REDIS_HOST = env.REDIS_HOST ?? "127.0.0.1";
+export const REDIS_PORT = env.REDIS_PORT ?? 6379;
+
 function assertEnvironmentVariable(name: string) {
   if (env[name])
     return;

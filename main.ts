@@ -1,10 +1,14 @@
-import { connectNats, jwtDecode, jwtValidate, MySqlClient, JSONCodec } from "./deps.ts";
+import { connectNats, jwtDecode, jwtValidate, MySqlClient, JSONCodec, connectRedis } from "./deps.ts";
 import type { MySqlConnection } from "./deps.ts";
 import * as env from "./env.ts";
 import type { MetaSpacePosts, MicroserviceMessage, NewPostInfo } from "./types.ts";
 
 const natsClient = await connectNats({
     servers: env.NATS_SERVER,
+});
+const redis = await connectRedis({
+    hostname: env.REDIS_HOST,
+    port: env.REDIS_PORT,
 });
 
 const natsCodec = JSONCodec<MicroserviceMessage<number>>();
@@ -14,17 +18,23 @@ for await (const message of userIdSubscription) {
     try {
         const { data: userId } = natsCodec.decode(message.data);
 
-        const client = await new MySqlClient().connect({
-        hostname: env.DB_HOST,
-        username: env.DB_USER,
-        password: env.DB_PASSWORD,
-        db: env.DB_DATABASE,
-        });
+        let client: MySqlClient | undefined;
 
         try {
+            client = await new MySqlClient().connect({
+                hostname: env.DB_HOST,
+                username: env.DB_USER,
+                password: env.DB_PASSWORD,
+                db: env.DB_DATABASE,
+            });
+
             await client.transaction((connection: MySqlConnection) => doJob(connection, userId));
+        } catch (e) {
+            await redis.set(`cms:post:sync_state:${userId}`, "error");
+            throw e;
         } finally {
-            await client.close();
+            if (client)
+                await client.close();
         }
     } catch (e) {
         console.error(new Date(), "Unhandled exception:", e);
@@ -41,7 +51,7 @@ async function doJob(connection: MySqlConnection, userId: number) {
     const matatakiId = payload.id as number;
     const newPosts = await getNewPostsOfUser(connection, userId, matatakiId);
 
-    await saveNewPosts(connection, newPosts);
+    await saveNewPosts(connection, userId, newPosts);
 
     console.log(new Date(), "Job completed");
 }
@@ -92,13 +102,14 @@ async function getMetaSpacePosts(userId: number) {
     return await response.json() as MetaSpacePosts;
 }
 
-async function saveNewPosts(connection: MySqlConnection, newPosts: Array<NewPostInfo>) {
+async function saveNewPosts(connection: MySqlConnection, userId: number, newPosts: Array<NewPostInfo>) {
     for (const newPost of newPosts) {
         await connection.query("INSERT INTO post_entity(`userId`, `title`, `cover`, `platform`, `source`, `state`) VALUES(?, ?, ?, ?, ?, ?);", [
             newPost.ucenterId, newPost.title, newPost.cover, "matataki", newPost.hash, "pending",
         ]);
     }
 
+    await redis.set(`cms:post:sync_state:${userId}`, newPosts.length);
     console.log(new Date(), `Saved ${newPosts.length} posts`);
 }
 
