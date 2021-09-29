@@ -30,7 +30,7 @@ for await (const message of userIdSubscription) {
 type AccessTokenRecord = { userId: number, accessToken: string }
 
 async function doJob(connection: MySqlConnection, userId: number) {
-    console.log(new Date(), "Job started");
+    console.log(new Date(), `Job started (userId: ${userId})`);
 
     const [{ accessToken }] = await connection.query("SELECT accessToken FROM access_token_entity WHERE userId = ? AND platform = 'matataki' AND active = 1;", [userId]) as Array<AccessTokenRecord>;
     const { payload } = jwtValidate(jwtDecode(accessToken));
