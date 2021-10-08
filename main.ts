@@ -31,7 +31,7 @@ for await (const message of userIdSubscription) {
 
             await client.transaction((connection: MySqlConnection) => doJob(connection, userId));
         } catch (e) {
-            await redis.set(`cms:post:sync_state:${userId}`, "error");
+            await redis.set(`cms:post:sync_state:matataki:${userId}`, "error");
             throw e;
         } finally {
             if (client)
@@ -110,7 +110,7 @@ async function saveNewPosts(connection: MySqlConnection, userId: number, newPost
         ]);
     }
 
-    await redis.set(`cms:post:sync_state:${userId}`, newPosts.length);
+    await redis.set(`cms:post:sync_state:matataki:${userId}`, newPosts.length);
     console.log(new Date(), `Saved ${newPosts.length} posts`);
 }
 
