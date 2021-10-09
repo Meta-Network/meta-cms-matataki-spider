@@ -1,6 +1,7 @@
 const env = Deno.env.toObject();
 
 assertEnvironmentVariable("MATATAKI_API_PREFIX");
+assertEnvironmentVariable("MATATAKI_COVER_PREFIX");
 assertEnvironmentVariable("DB_HOST");
 assertEnvironmentVariable("DB_USER");
 assertEnvironmentVariable("DB_PASSWORD");
@@ -8,6 +9,7 @@ assertEnvironmentVariable("DB_DATABASE");
 assertEnvironmentVariable("NATS_SERVER");
 
 export const MATATAKI_API_PREFIX = env.MATATAKI_API_PREFIX;
+export const MATATAKI_COVER_PREFIX = env.MATATAKI_COVER_PREFIX;
 export const DB_HOST = env.DB_HOST;
 export const DB_USER = env.DB_USER;
 export const DB_PASSWORD = env.DB_PASSWORD;
