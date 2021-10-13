@@ -20,9 +20,17 @@ export interface NewPostInfo {
     timestamp: string;
     title: string;
     cover: string;
+    tags: Array<string>;
 }
 
 export interface MicroserviceMessage<T> {
     data: T;
     pattern: string;
+}
+
+export interface ApiWrapper<T> {
+    data: T;
+}
+export interface MatatakiPostInfo {
+    tags: Array<{ id: number, name: string }>;
 }

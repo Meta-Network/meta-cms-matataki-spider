@@ -1,7 +1,7 @@
 import { connectNats, jwtDecode, jwtValidate, MySqlClient, JSONCodec, connectRedis } from "./deps.ts";
 import type { MySqlConnection } from "./deps.ts";
 import * as env from "./env.ts";
-import type { MetaSpacePosts, MicroserviceMessage, NewPostInfo } from "./types.ts";
+import type { MetaSpacePosts, MicroserviceMessage, NewPostInfo, ApiWrapper, MatatakiPostInfo } from "./types.ts";
 
 const natsClient = await connectNats({
     servers: env.NATS_SERVER,
@@ -70,6 +70,7 @@ async function getNewPostsOfUser(connection: MySqlConnection, ucenterId: number,
                 continue;
 
             const postInfo = posts.find(post => post.id === Number(postId))!;
+            const tags = await getTags(Number(postId));
 
             newPosts.push({
                 ucenterId,
@@ -78,6 +79,7 @@ async function getNewPostsOfUser(connection: MySqlConnection, ucenterId: number,
                 timestamp: createdAt,
                 title: postInfo.title,
                 cover: postInfo.cover,
+                tags,
             });
 
             if (latestTimestamp < timestamp)
@@ -105,8 +107,10 @@ async function getMetaSpacePosts(userId: number) {
 
 async function saveNewPosts(connection: MySqlConnection, userId: number, newPosts: Array<NewPostInfo>) {
     for (const newPost of newPosts) {
-        await connection.query("INSERT INTO post_entity(`userId`, `title`, `cover`, `platform`, `source`, `state`) VALUES(?, ?, ?, ?, ?, ?);", [
-            newPost.ucenterId, newPost.title, `${env.MATATAKI_COVER_PREFIX}${newPost.cover}`, "matataki", newPost.hash, "pending",
+        const cover = newPost.cover ? `${env.MATATAKI_COVER_PREFIX}${newPost.cover}` : null;
+
+        await connection.query("INSERT INTO post_entity(`userId`, `title`, `cover`, `platform`, `source`, `state`, `tags`, `createdAt`) VALUES(?, ?, ?, ?, ?, ?, ?, ?);", [
+            newPost.ucenterId, newPost.title, cover, "matataki", newPost.hash, "pending", newPost.tags.join(","), new Date(newPost.timestamp)
         ]);
     }
 
@@ -116,4 +120,11 @@ async function saveNewPosts(connection: MySqlConnection, userId: number, newPost
 
 async function recordLatestTime(connection: MySqlConnection, matatakiId: number, timestamp: Date) {
     await connection.query("REPLACE INTO matataki_sync_entity VALUES(?, ?);", [matatakiId, timestamp]);
+}
+
+async function getTags(postId: number) {
+    const response = await fetch(`${env.MATATAKI_API_PREFIX}/p/${postId}`);
+    const { data } = await response.json() as ApiWrapper<MatatakiPostInfo>;
+
+    return data.tags.map(({ name }) => name);
 }
