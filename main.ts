@@ -107,7 +107,7 @@ async function getMetaSpacePosts(userId: number) {
 
 async function saveNewPosts(connection: MySqlConnection, userId: number, newPosts: Array<NewPostInfo>) {
     for (const newPost of newPosts) {
-        const cover = newPost.cover ? `${env.MATATAKI_COVER_PREFIX}${newPost.cover}` : null;
+        const cover = newPost.cover ? `${env.MATATAKI_COVER_PREFIX}${newPost.cover}` : "";
 
         await connection.query("INSERT INTO post_entity(`userId`, `title`, `cover`, `platform`, `source`, `state`, `tags`, `createdAt`) VALUES(?, ?, ?, ?, ?, ?, ?, ?);", [
             newPost.ucenterId, newPost.title, cover, "matataki", newPost.hash, "pending", newPost.tags.join(","), new Date(newPost.timestamp)
