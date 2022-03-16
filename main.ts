@@ -15,7 +15,10 @@ const redis = await connectRedis({
 const natsCodec = JSONCodec<MicroserviceMessage<number>>();
 const userIdSubscription = natsClient.subscribe("cms.post.sync.matataki");
 
+console.log('monitoring started');
+
 for await (const message of userIdSubscription) {
+    console.log(`message:`,message);
     try {
         const { data: userId } = natsCodec.decode(message.data);
 
